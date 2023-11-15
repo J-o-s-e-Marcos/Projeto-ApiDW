@@ -100,3 +100,50 @@ def excluir_usuario(id):
         return jsonify({'message': 'Usuário excluído com sucesso!'})
 
     return jsonify({'message': 'Usuário não encontrado!'})
+
+
+#--------------------------Login de Admin----------------------------------------#
+
+@app.route('/admin/login', methods=['POST'])
+def login_admin():
+    login = request.get_json()
+    administrador = login.get('name')
+    senha = login.get('password')
+
+    # Buscar o administrador pelo nome
+    admin = Admin.query.filter_by(name=administrador).first()
+
+    # Verificar se o administrador existe e se a senha está correta
+    if admin and bcrypt.checkpw(senha.encode('utf-8'), admin.password.encode('utf-8')):
+        session['name'] = administrador
+        return jsonify({'id': admin.id, 'admin': admin.name, 'message': 'Login feito com sucesso!'})
+
+    return jsonify({'message': 'Dados Inválidos!'})
+
+
+
+#-------------------------Logout de Admin--------------------------------#
+@app.route('/admin/logout', methods=['POST'])
+def logout_admin():
+    if 'name' in session:
+        session.pop('name', None)
+        return jsonify({'message': 'Administrador saiu da sessão!'})
+
+    return jsonify({'message': 'Nenhum Administrador logado!'})
+
+
+#-----------------------Listar Usuarios (compradores, vendedores)-------------------------------#
+@app.route('/admin/users', methods=['GET'])
+def mostrar_usuario():
+    if 'name' not in session:
+        return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
+
+    admin = Admin.query.filter_by(name=session['name']).first()
+    if admin.type != 'Admin':
+        return jsonify({'message': 'Acesso restrito a Admins!'})
+
+    usuarios = User.query.all()
+    usuarios_json = [
+        {'id': u.id, 'user': u.name, 'email': u.email, 'password': u.password, 'status': u.status, 'type': u.type}
+        for u in usuarios]
+    return jsonify(usuarios_json)
