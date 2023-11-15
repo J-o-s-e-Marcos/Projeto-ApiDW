@@ -3,6 +3,7 @@ from app import app, db
 from models import User, Admin, Item, Category
 import bcrypt
 
+
 #---------------------Registrar Usuário-------------------------------------------------#
 @app.route('/users/signup', methods=['POST'])
 def criar_usuario():
@@ -10,6 +11,7 @@ def criar_usuario():
 
     if all(key in criar_user for key in ['name', 'email', 'password', 'status', 'type']):
         user_type = criar_user['type']
+
 
         if user_type not in ['Comprador', 'Vendedor']:
             return jsonify({'error': 'Tipo de usuário inválido!'})
@@ -30,21 +32,19 @@ def criar_usuario():
 
 #--------------------------Login de Usuario-----------------------------------------------#
 @app.route('/users/login', methods=['POST'])
-
 def login_usuario():
     login = request.get_json()
 
-    email = login.get('email')
+    usuario = login.get('name')
     senha = login.get('password')
 
-    user = User.query.filter_by(email=email).first()
+    user = User.query.filter_by(name=usuario).first()
 
     if user and bcrypt.checkpw(senha.encode('utf-8'), user.password.encode('utf-8')):
-        session['email'] = email
+        session['name'] = usuario
         return jsonify({'id': user.id, 'user': user.name, 'message': 'Login feito com sucesso!'})
 
     return jsonify({'message': 'Dados Inválidos!'})
-
 
 #-------------------------Logout de usuario---------------------------------------------#
 
@@ -110,10 +110,10 @@ def login_admin():
     administrador = login.get('name')
     senha = login.get('password')
 
-    # Buscar o administrador pelo nome
+
     admin = Admin.query.filter_by(name=administrador).first()
 
-    # Verificar se o administrador existe e se a senha está correta
+
     if admin and bcrypt.checkpw(senha.encode('utf-8'), admin.password.encode('utf-8')):
         session['name'] = administrador
         return jsonify({'id': admin.id, 'admin': admin.name, 'message': 'Login feito com sucesso!'})
@@ -156,7 +156,7 @@ def criar_itens():
         return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
     user = User.query.filter_by(name=session['name']).first()
-    if user.type != 'Vendedor':  # Alterado para verificar a string 'Vendedor'
+    if user.type != 'Vendedor':
         return jsonify({'message': 'Acesso restrito a vendedores!'})
 
     item_data = request.get_json()
@@ -171,7 +171,7 @@ def criar_itens():
             description=item_data['description'],
             status=item_data['status'],
             date=item_data['date'],
-            saller_id=user.id  # Usando o id do usuário logado
+            saller_id=user.id
         )
         db.session.add(item)
         db.session.commit()
@@ -221,13 +221,13 @@ def editar_item(id):
         return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
     user = User.query.filter_by(name=session['name']).first()
-    if user.type != 'Vendedor':  # Alterado para verificar a string
+    if user.type != 'Vendedor':
         return jsonify({'message': 'Acesso restrito a vendedores!'})
 
     item_data = request.get_json()
     item = Item.query.get(id)
 
-    # Verifica se o item existe e se pertence ao usuário vendedor logado
+
     if item and item.saller_id == user.id:
         item.title = item_data.get('title', item.title)
         item.author = item_data.get('author', item.author)
@@ -236,7 +236,7 @@ def editar_item(id):
         item.description = item_data.get('description', item.description)
         item.status = item_data.get('status', item.status)
         item.date = item_data.get('date', item.date)
-        # Não atualiza o saller_id, pois ele não deve mudar
+
 
         db.session.commit()
         return jsonify({'message': 'Item editado com sucesso!'})
@@ -258,12 +258,12 @@ def excluir_item(id):
         return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
     user = User.query.filter_by(name=session['name']).first()
-    if user.type != 'Vendedor':  # Verifica se o usuário é do tipo 'Vendedor'
+    if user.type != 'Vendedor':
         return jsonify({'message': 'Acesso restrito a vendedores!'})
 
     item = Item.query.get(id)
 
-    if item and item.saller_id == user.id:  # Verifica se o item pertence ao usuário
+    if item and item.saller_id == user.id:
         db.session.delete(item)
         db.session.commit()
         return jsonify({'message': 'Item excluído com sucesso!'})
@@ -282,7 +282,7 @@ def criar_categoria():
         return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
     user = User.query.filter_by(name=session['name']).first()
-    if user.type != 'Vendedor':  # Alterado para verificar a string 'Vendedor'
+    if user.type != 'Vendedor':
         return jsonify({'message': 'Acesso restrito a vendedores!'})
 
     categoria_data = request.get_json()
@@ -307,7 +307,7 @@ def editar_categoria(id):
         return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
     user = User.query.filter_by(name=session['name']).first()
-    if user.type != 'Vendedor':  # Alterado para verificar a string 'Vendedor'
+    if user.type != 'Vendedor':
         return jsonify({'message': 'Acesso restrito a vendedores!'})
 
     categoria_data = request.get_json()
@@ -326,10 +326,9 @@ def editar_categoria(id):
 #--------------------------Listar Categoria--------------------------------------------#
 @app.route('/categories/', methods=['GET'])
 def mostrar_categoria():
-    categorias = Category.query.all()
+    categorias = Category.query.filter_by(deleted=False).all()
     categorias_json = [{'id': c.id, 'category': c.name, 'description': c.description} for c in categorias]
     return jsonify(categorias_json)
-
 
 #--------------------------Deletar Categoria---------------------------------------#
 @app.route('/categories/<int:id>', methods=['DELETE'])
@@ -343,9 +342,8 @@ def excluir_categoria(id):
 
     categoria = Category.query.get(id)
     if categoria:
-        db.session.delete(categoria)
+        categoria.deleted = True
         db.session.commit()
-        return jsonify({'message': 'Categoria excluída com sucesso!'})
+        return jsonify({'message': 'Categoria deletada com sucesso!'})
 
     return jsonify({'message': 'Categoria não encontrada!'})
-
