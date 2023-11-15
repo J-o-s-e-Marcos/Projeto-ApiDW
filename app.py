@@ -4,13 +4,16 @@ import os
 
 app = Flask(__name__)
 
+# Configurações do banco de dados
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:135724655@localhost/ApiDw2_sebo'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-app.secret_key = os.environ.get('SECRET_KEY', 'Chave-secreta-xzc1225566898741aa')
+# Chave secreta para a sessão
+app.secret_key = os.environ.get('SECRET_KEY', 'chave_secreta_default')
 
 db = SQLAlchemy(app)
 
+from routes import *
 def create_admin():
     with app.app_context():  # Adiciona o contexto da aplicação
         # Verifique se já existe um administrador
@@ -29,4 +32,3 @@ if __name__ == '__main__':
         db.create_all()
         create_admin()
     app.run(port=5000, host='localhost', debug=True)
-
