@@ -1,6 +1,8 @@
+from datetime import datetime
+
 from flask import jsonify, request, session
 from app import app, db
-from models import User, Admin, Item, Category
+from models import User, Admin, Item, Category, Transacao
 import bcrypt
 
 
@@ -170,7 +172,7 @@ def criar_itens():
             price=item_data['price'],
             description=item_data['description'],
             status=item_data['status'],
-            date=item_data['date'],
+            date= datetime.now(),
             saller_id=user.id
         )
         db.session.add(item)
@@ -235,7 +237,7 @@ def editar_item(id):
         item.price = item_data.get('price', item.price)
         item.description = item_data.get('description', item.description)
         item.status = item_data.get('status', item.status)
-        item.date = item_data.get('date', item.date)
+        item.date = item_data.get(datetime.now())
 
 
         db.session.commit()
@@ -347,3 +349,60 @@ def excluir_categoria(id):
         return jsonify({'message': 'Categoria deletada com sucesso!'})
 
     return jsonify({'message': 'Categoria não encontrada!'})
+
+#-------------------------Criar transação-------------------------------------#
+
+from datetime import datetime
+@app.route('/comprar/<int:item_id>', methods=['POST'])
+def comprar_item(item_id):
+    if 'name' not in session:
+        return jsonify({'message': 'É necessário estar logado para comprar itens!'})
+
+    comprador = User.query.filter_by(name=session['name']).first()
+    item = Item.query.get(item_id)
+
+    if not item:
+        return jsonify({'message': 'Item não encontrado!'})
+
+    if item.status != 'Disponível':
+        return jsonify({'message': 'Item não está disponível para compra!'})
+
+    # Realizar a transação
+    vendedor = User.query.get(item.saller_id)
+    item.status = 'Vendido'
+    item.date_vendido = datetime.now()
+
+    # Registrar transação
+    nova_transacao = Transacao(
+        comprador_id=comprador.id,
+        vendedor_id=vendedor.id,
+        item_id=item_id,
+        valor=item.price,
+        data_transacao=datetime.now()
+    )
+    db.session.add(nova_transacao)
+    db.session.commit()
+
+    return jsonify({'message': 'Item comprado com sucesso!'})
+
+#---------------------------------- Transações de comprador
+@app.route('/minhas_transacoes', methods=['GET'])
+def listar_transacoes_comprador():
+    if 'name' not in session:
+        return jsonify({'message': 'É necessário estar logado para listar transações!'})
+
+    comprador = User.query.filter_by(name=session['name']).first()
+    transacoes = Transacao.query.filter_by(comprador_id=comprador.id).all()
+    transacoes_json = [{'id': t.id, 'item_id': t.item_id, 'valor': t.valor} for t in transacoes]
+    return jsonify(transacoes_json)
+
+#---------------------------------- Transações de vendedor
+@app.route('/minhas_vendas', methods=['GET'])
+def listar_transacoes_vendedor():
+    if 'name' not in session:
+        return jsonify({'message': 'É necessário estar logado para listar transações!'})
+
+    vendedor = User.query.filter_by(name=session['name']).first()
+    transacoes = Transacao.query.filter_by(vendedor_id=vendedor.id).all()
+    transacoes_json = [{'id': t.id, 'item_id': t.item_id, 'valor': t.valor} for t in transacoes]
+    return jsonify(transacoes_json)
