@@ -3,22 +3,27 @@ from app import app, db, api
 from models import Admin, Category, Transacao, User, Item
 import bcrypt
 from datetime import datetime
-from flask_restx import Resource
+from flask_restx import Resource, fields
 
 
 # ---------------------Registrar Usuário-------------------------------------------------
 @api.route('/users/signup', methods=['POST'])
 class CriarUsuario(Resource):
+    @api.doc(
+        description="Cria um novo usuário",
+        responses={
+            201: 'Usuário criado com sucesso',
+            400: 'Dados de entrada inválidos ou campos faltando'
+        },
+        body=api.model('CriarUsuarioModel', {
+            'name': fields.String(required=True, description='Nome do usuário'),
+            'email': fields.String(required=True, description='Email do usuário'),
+            'password': fields.String(required=True, description='Senha do usuário'),
+            'status': fields.String(required=True, description='Status do usuário'),
+            'type': fields.String(required=True, description='Tipo do usuário', enum=['Comprador', 'Vendedor'])
+        })
+    )
     def post(self):
-        """
-           Cria um novo usuário
-           ---
-           responses:
-             200:
-               description: Usuário criado com sucesso
-             400:
-               description: Erro de validação
-           """
         criar_user = request.get_json()
 
         if all(key in criar_user for key in ['name', 'email', 'password', 'status', 'type']):
@@ -44,6 +49,19 @@ class CriarUsuario(Resource):
 
 @api.route('/users/login', methods=['POST'])
 class LoginUsuario(Resource):
+    user_login_model = api.model('UserLoginModel', {
+        'name': fields.String(required=True, description='Nome do usuário'),
+        'password': fields.String(required=True, description='Senha do usuário')
+    })
+
+    @api.doc(
+        description="Efetua o login de um usuário. O usuário deve fornecer seu nome e senha.",
+        responses={
+            200: 'Login feito com sucesso',
+            401: 'Dados Inválidos'
+        },
+        body=user_login_model  # Modelo para o corpo da requisição
+    )
     def post(self):
         login = request.get_json()
 
@@ -62,6 +80,10 @@ class LoginUsuario(Resource):
 # -------------------------Logout de usuario---------------------------------------------#
 @api.route('/users/logout', methods=['POST'])
 class LogoutUser(Resource):
+    @api.doc(responses={
+        200: 'Logout bem-sucedido',
+        401: 'Não autorizado, nenhum usuário logado'
+    })
     def post(self):
         if 'name' in session:
             session.pop('name', None)
@@ -72,11 +94,25 @@ class LogoutUser(Resource):
 
 # -------------------------Editar Usuario--------------------------------------#
 @api.route('/users/<int:id>')
-@api.doc(params={'id': 'ID do usuário'})
-class EditarUser(Resource):
-
+class UserOperations(Resource):
+    @api.doc(
+        description="Edita um usuário existente pelo ID",
+        responses={
+            200: 'Usuário editado com sucesso',
+            401: 'Não autorizado - necessário estar logado',
+            404: 'Usuário não encontrado'
+        },
+        params={'id': 'ID do usuário'},
+        body=api.model('UserEditModel', {
+            'name': fields.String(description='Nome do Usuário'),
+            'email': fields.String(description='Email do Usuário'),
+            'password': fields.String(description='Senha do Usuário'),
+            'status': fields.String(description='Status do Usuário'),
+            'type': fields.String(description='Tipo do Usuário', enum=['Comprador', 'Vendedor'])
+        })
+    )
     def put(self, id):
-      
+
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
@@ -103,10 +139,16 @@ class EditarUser(Resource):
 
         return jsonify({'message': 'Usuário não encontrado!'})
 
-
-# --------------------------Deletar Usuário------------------------------------------#
-@api.route('/users/<int:id>', methods=['DELETE'])
-class ExcUser(Resource):
+    # --------------------------Deletar Usuário------------------------------------------#
+    @api.doc(
+        description="Exclui um usuário pelo ID",
+        responses={
+            200: 'Usuário excluído com sucesso',
+            401: 'Não autorizado - necessário estar logado',
+            404: 'Usuário não encontrado'
+        },
+        params={'id': 'ID do usuário a ser excluído'}
+    )
     def delete(self, id):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -124,6 +166,17 @@ class ExcUser(Resource):
 
 @api.route('/admin/login', methods=['POST'])
 class LoginAdm(Resource):
+    @api.doc(
+        description="Efetua o login de um administrador",
+        responses={
+            200: 'Login feito com sucesso',
+            401: 'Dados Inválidos'
+        },
+        body=api.model('LoginAdminModel', {
+            'name': fields.String(required=True, description='Nome do administrador'),
+            'password': fields.String(required=True, description='Senha do administrador')
+        })
+    )
     def post(self):
         login = request.get_json()
         administrador = login.get('name')
@@ -141,6 +194,13 @@ class LoginAdm(Resource):
 # -------------------------Logout de Admin--------------------------------#
 @api.route('/admin/logout', methods=['POST'])
 class LogoutAdm(Resource):
+    @api.doc(
+        description="Efetua o logout de um administrador",
+        responses={
+            200: 'Logout de administrador bem-sucedido',
+            401: 'Nenhum Administrador logado'
+        }
+    )
     def post(self):
         if 'name' in session:
             session.pop('name', None)
@@ -152,6 +212,13 @@ class LogoutAdm(Resource):
 # -----------------------Listar Usuarios (compradores, vendedores)-------------------------------#
 @api.route('/admin/users', methods=['GET'])
 class MostarUser(Resource):
+    @api.doc(
+        description="Mostra a lista de todos os usuários",
+        responses={
+            200: 'Lista de usuários retornada com sucesso',
+            401: 'Não autorizado - necessário estar logado como Admin'
+        }
+    )
     def get(self):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -168,8 +235,25 @@ class MostarUser(Resource):
 
 
 # --------------------------Criar Itens-------------------------------#
-@api.route('/items', methods=['POST'])
-class CriarItens(Resource):
+@api.route('/items', methods=['POST', 'GET'])
+class ItemOperations(Resource):
+    @api.doc(
+        description="Cria um novo item",
+        responses={
+            201: 'Item criado com sucesso',
+            401: 'Não autorizado - necessário estar logado como vendedor',
+            400: 'Dados de entrada inválidos'
+        },
+        body=api.model('CriarItemModel', {
+            'title': fields.String(required=True, description='Título do item'),
+            'author': fields.String(required=True, description='Autor do item'),
+            'category_id': fields.Integer(required=True, description='ID da categoria do item'),
+            'price': fields.Float(required=True, description='Preço do item'),
+            'description': fields.String(required=True, description='Descrição do item'),
+            'status': fields.String(required=True, description='Status do item'),
+            'date': fields.DateTime(description='Data de criação do item')
+        })
+    )
     def post(self):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -201,11 +285,14 @@ class CriarItens(Resource):
 
         return jsonify({'error': 'Verifique se os campos estão sendo inseridos corretamente!'})
 
-
-# ------------------------Listar Itens----------------------------------------#
-
-@api.route('/items', methods=['GET'])
-class MostrarItens(Resource):
+    # ------------------------Listar Itens----------------------------------------#
+    @api.doc(
+        description="Lista todos os itens",
+        responses={
+            200: 'Lista de itens retornada com sucesso',
+            401: 'Não autorizado - necessário estar logado'
+        }
+    )
     def get(self):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -219,8 +306,17 @@ class MostrarItens(Resource):
 
 # --------------------------Listar Item Específico--------------------------------------#
 
-@api.route('/items/id', methods=['GET'])
-class MostrarItemEsp(Resource):
+@api.route('/items/<int:id>', methods=['GET', 'PUT', 'DELETE'])
+class SpecificItemOperations(Resource):
+    @api.doc(
+        description="Obtém detalhes de um item específico pelo ID",
+        responses={
+            200: 'Detalhes do item retornados com sucesso',
+            401: 'Não autorizado - necessário estar logado',
+            404: 'Item não encontrado'
+        },
+        params={'id': 'ID do item'}
+    )
     def get(self, id):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -235,9 +331,24 @@ class MostrarItemEsp(Resource):
 
 
 # -------------------------Editar Item----------------------------------------#
-
-@api.route('/items/int', methods=['PUT'])
-class EditItem(Resource):
+    @api.doc(
+        description="Edita um item existente pelo ID",
+        responses={
+            200: 'Item editado com sucesso',
+            401: 'Não autorizado - necessário estar logado como vendedor',
+            403: 'Permissão negada - não é possível editar itens de outros vendedores',
+            404: 'Item não encontrado'
+        },
+        params={'id': 'ID do item'},
+        body=api.model('ItemEditModel', {
+            'title': fields.String(description='Título do item'),
+            'author': fields.String(description='Autor do item'),
+            'category_id': fields.Integer(description='ID da categoria do item'),
+            'price': fields.Float(description='Preço do item'),
+            'description': fields.String(description='Descrição do item'),
+            'status': fields.String(description='Status do item')
+        })
+    )
     def put(self, id):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -268,10 +379,16 @@ class EditItem(Resource):
 
 
 # --------------------------Deletar Item-------------------------------------#
-
-
-@api.route('/items/id', methods=['DELETE'])
-class ExcItem(Resource):
+    @api.doc(
+        description="Exclui um item pelo ID",
+        responses={
+            200: 'Item excluído com sucesso',
+            401: 'Não autorizado - necessário estar logado como vendedor',
+            403: 'Permissão negada - não é possível excluir itens de outros vendedores',
+            404: 'Item não encontrado'
+        },
+        params={'id': 'ID do item a ser excluído'}
+    )
     def delete(self, id):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -295,8 +412,20 @@ class ExcItem(Resource):
 # --------------------------Criar Categoria-----------------------------------------#
 
 
-@api.route('/categories', methods=['POST'])
-class CriarCat(Resource):
+@api.route('/categories', methods=['POST', 'GET'])
+class CategoryOperations(Resource):
+    @api.doc(
+        description="Cria uma nova categoria",
+        responses={
+            201: 'Categoria criada com sucesso',
+            401: 'Não autorizado - necessário estar logado como vendedor',
+            400: 'Dados de entrada inválidos'
+        },
+        body=api.model('CriarCategoryModel', {
+            'name': fields.String(required=True, description='Nome da categoria'),
+            'description': fields.String(required=True, description='Descrição da categoria')
+        })
+    )
     def post(self):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -317,12 +446,61 @@ class CriarCat(Resource):
 
         return jsonify({'error': 'Verifique se os campos estão inseridos corretamente!'})
 
+    @api.doc(
+        description="Lista todas as categorias",
+        responses={
+            200: 'Lista de categorias retornada com sucesso',
+            401: 'Não autorizado - necessário estar logado'
+        }
+    )
+    def get(self):
+        categorias = Category.query.filter_by(deleted=False).all()
+        categorias_json = [{'id': c.id, 'category': c.name, 'description': c.description} for c in categorias]
+        return jsonify(categorias_json)
 
-# --------------------------Editar Categoria------------------------------------#
 
 
-@api.route('/categories/int', methods=['PUT'])
-class EditCat(Resource):
+# --------------------------Deletar Categoria---------------------------------------#
+@api.route('/categories/<int:id>', methods=['DELETE', 'PUT'])
+class SpecificCategoryOperations(Resource):
+    @api.doc(
+        description="Deleta uma categoria específica pelo ID",
+        responses={
+            200: 'Categoria deletada com sucesso',
+            401: 'Não autorizado - necessário estar logado como vendedor',
+            404: 'Categoria não encontrada'
+        },
+        params={'id': 'ID da categoria'}
+    )
+    def delete(self, id):
+        if 'name' not in session:
+            return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
+
+        user = User.query.filter_by(name=session['name']).first()
+        if user.type != 'Vendedor':
+            return jsonify({'message': 'Acesso restrito a vendedores!'})
+
+        categoria = Category.query.get(id)
+        if categoria:
+            categoria.deleted = True
+            db.session.commit()
+            return jsonify({'message': 'Categoria deletada com sucesso!'})
+
+        return jsonify({'message': 'Categoria não encontrada!'})
+
+    @api.doc(
+        description="Edita uma categoria específica pelo ID",
+        responses={
+            200: 'Categoria editada com sucesso',
+            401: 'Não autorizado - necessário estar logado como vendedor',
+            404: 'Categoria não encontrada'
+        },
+        params={'id': 'ID da categoria'},
+        body=api.model('CategoryEditModel', {
+            'name': fields.String(description='Nome da categoria'),
+            'description': fields.String(description='Descrição da categoria')
+        })
+    )
     def put(self, id):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
@@ -342,42 +520,21 @@ class EditCat(Resource):
             return jsonify({'message': 'Categoria editada com sucesso!'})
 
         return jsonify({'message': 'Categoria não encontrada!'})
-
-
-# --------------------------Listar Categoria--------------------------------------------#
-@api.route('/categories/', methods=['GET'])
-class MostrarCat(Resource):
-    def get(self):
-        categorias = Category.query.filter_by(deleted=False).all()
-        categorias_json = [{'id': c.id, 'category': c.name, 'description': c.description} for c in categorias]
-        return jsonify(categorias_json)
-
-
-# --------------------------Deletar Categoria---------------------------------------#
-@api.route('/categories/<int:id>', methods=['DELETE'])
-class ExcluirCat(Resource):
-    def delete(self, id):
-        if 'name' not in session:
-            return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
-
-        user = User.query.filter_by(name=session['name']).first()
-        if user.type != 'Vendedor':
-            return jsonify({'message': 'Acesso restrito a vendedores!'})
-
-        categoria = Category.query.get(id)
-        if categoria:
-            categoria.deleted = True
-            db.session.commit()
-            return jsonify({'message': 'Categoria deletada com sucesso!'})
-
-        return jsonify({'message': 'Categoria não encontrada!'})
-
-
 # -------------------------Criar transação-------------------------------------#
 
 
 @api.route('/comprar/<int:item_id>', methods=['POST'])
 class ComprarItem(Resource):
+    @api.doc(
+        description="Efetua a compra de um item pelo ID",
+        responses={
+            200: 'Item comprado com sucesso',
+            401: 'Não autorizado - necessário estar logado para comprar itens',
+            404: 'Item não encontrado',
+            403: 'Item não está disponível para compra'
+        },
+        params={'item_id': 'ID do item a ser comprado'},
+    )
     def post(self, item_id):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para comprar itens!'})
@@ -415,7 +572,15 @@ class ComprarItem(Resource):
 
 @api.route('/minhas_transacoes', methods=['GET'])
 class ListarTransacoes(Resource):
+    @api.doc(
+        description="Lista todas as transações do usuário logado como comprador",
+        responses={
+            200: 'Lista de transações retornada com sucesso',
+            401: 'Não autorizado - necessário estar logado'
+        }
+    )
     def get(self):
+
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para listar transações!'})
 
@@ -430,6 +595,13 @@ class ListarTransacoes(Resource):
 
 @api.route('/minhas_vendas', methods=['GET'])
 class ListarVendas(Resource):
+    @api.doc(
+        description="Lista todas as vendas do usuário logado como vendedor",
+        responses={
+            200: 'Lista de vendas retornada com sucesso',
+            401: 'Não autorizado - necessário estar logado'
+        }
+    )
     def get(self):
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para listar transações!'})
