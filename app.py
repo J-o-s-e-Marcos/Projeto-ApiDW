@@ -7,7 +7,7 @@ from flask_restx import Api
 app = Flask(__name__)
 api = Api(app, version='1.0', title='Minha API', description='Uma descrição simples da API')
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:1234@localhost/ApiDw2_sebo'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:135724655@localhost/ApiDw2_sebo'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 app.secret_key = os.environ.get('SECRET_KEY', 'chave_secreta')

@@ -3,7 +3,7 @@ from app import app, db, api
 from models import Admin, Category, Transacao, User, Item
 import bcrypt
 from datetime import datetime
-from flask_restx import Resource, fields
+from flask_restx import Resource, fields, reqparse
 
 
 # ---------------------Registrar Usuário-------------------------------------------------
@@ -60,7 +60,7 @@ class LoginUsuario(Resource):
             200: 'Login feito com sucesso',
             401: 'Dados Inválidos'
         },
-        body=user_login_model  # Modelo para o corpo da requisição
+        body=user_login_model
     )
     def post(self):
         login = request.get_json()
@@ -302,35 +302,49 @@ class ItemOperations(Resource):
                        'description': i.description, 'status': i.status, 'date': i.date, 'saller_id': i.saller_id} for i
                       in items]
         return jsonify(items_json)
+  # -------------------------Buscar por filtro----------------------------------------#
 
-
-# --------------------------Listar Item Específico--------------------------------------#
-
-@api.route('/items/<int:id>', methods=['GET', 'PUT', 'DELETE'])
-class SpecificItemOperations(Resource):
+@api.route('/items/buscar', methods=['GET'])
+class BuscarItems(Resource):
     @api.doc(
-        description="Obtém detalhes de um item específico pelo ID",
+        description="Busca itens com base em um filtro genérico, que pode ser título, autor ou categoria",
         responses={
-            200: 'Detalhes do item retornados com sucesso',
-            401: 'Não autorizado - necessário estar logado',
-            404: 'Item não encontrado'
+            200: 'Busca realizada com sucesso',
+            400: 'Parâmetro de busca inválido'
         },
-        params={'id': 'ID do item'}
+        params={
+            'filtro': {
+                'description': 'Filtro de busca (pode ser título, autor ou ID da categoria)',
+                'in': 'query',
+                'type': 'string',
+                'required': True
+            }
+        }
     )
-    def get(self, id):
-        if 'name' not in session:
-            return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
+    def get(self):
+        parser = reqparse.RequestParser()
+        parser.add_argument('filtro', type=str, required=True, help='Filtro de busca (pode ser título, autor ou ID da categoria)')
+        args = parser.parse_args()
 
-        item = Item.query.get(id)
-        if item:
-            return jsonify({'id': item.id, 'title': item.title, 'author': item.author, 'category_id': item.category_id,
-                            'price': item.price, 'description': item.description, 'status': item.status,
-                            'date': item.date, 'saller_id': item.saller_id})
+        filtro = args['filtro']
+        query = Item.query
 
-        return jsonify({'message': 'Item não encontrado!'})
+        if filtro.isdigit():
+            query = query.filter_by(category_id=int(filtro))
+        else:
+
+            filtro_like = f"%{filtro}%"
+            query = query.filter(db.or_(Item.title.ilike(filtro_like), Item.author.ilike(filtro_like)))
+
+        items = query.all()
+        items_json = [{'id': i.id, 'title': i.title, 'author': i.author, 'category_id': i.category_id, 'price': i.price,
+                       'description': i.description, 'status': i.status, 'date': i.date, 'saller_id': i.saller_id}
+                      for i in items]
+
+        return jsonify(items_json)
 
 
-# -------------------------Editar Item----------------------------------------#
+    # -------------------------Editar Item----------------------------------------#
     @api.doc(
         description="Edita um item existente pelo ID",
         responses={
@@ -377,8 +391,7 @@ class SpecificItemOperations(Resource):
         else:
             return jsonify({'message': 'Você não tem permissão para editar este item!'})
 
-
-# --------------------------Deletar Item-------------------------------------#
+    # --------------------------Deletar Item-------------------------------------#
     @api.doc(
         description="Exclui um item pelo ID",
         responses={
@@ -459,7 +472,6 @@ class CategoryOperations(Resource):
         return jsonify(categorias_json)
 
 
-
 # --------------------------Deletar Categoria---------------------------------------#
 @api.route('/categories/<int:id>', methods=['DELETE', 'PUT'])
 class SpecificCategoryOperations(Resource):
@@ -520,6 +532,8 @@ class SpecificCategoryOperations(Resource):
             return jsonify({'message': 'Categoria editada com sucesso!'})
 
         return jsonify({'message': 'Categoria não encontrada!'})
+
+
 # -------------------------Criar transação-------------------------------------#
 
 
@@ -580,7 +594,6 @@ class ListarTransacoes(Resource):
         }
     )
     def get(self):
-
         if 'name' not in session:
             return jsonify({'message': 'É necessário estar logado para listar transações!'})
 
