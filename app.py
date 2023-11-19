@@ -5,7 +5,7 @@ import os
 from flask_restx import Api
 
 app = Flask(__name__)
-api = Api(app, version='1.0', title='Minha API', description='Uma descrição simples da API')
+api = Api(app, version='1.0', title='API Sebo - PDWA5', description='Endpoints')
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:135724655@localhost/ApiDw2_sebo'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

@@ -1,7 +1,7 @@
 from flask import session, jsonify, request
 from app import app, db, api
 from models import Admin, Category, Transacao, User, Item
-import bcrypt
+import bcrypt, re
 from datetime import datetime
 from flask_restx import Resource, fields, reqparse
 
@@ -26,6 +26,15 @@ class CriarUsuario(Resource):
     def post(self):
         criar_user = request.get_json()
 
+        if User.query.filter_by(email=criar_user.get('email')).first():
+            return jsonify({'error': 'Email já cadastrado!'})
+
+        if not re.match(r"[^@]+@[^@]+\.[^@]+", criar_user.get('email', '')):
+            return jsonify({'error': 'Formato de email inválido!'})
+
+        if len(criar_user.get('password', '')) < 4:
+            return jsonify({'error': 'A senha deve ter pelo menos 4 caracteres!'})
+
         if all(key in criar_user for key in ['name', 'email', 'password', 'status', 'type']):
             user_type = criar_user['type']
 
@@ -43,19 +52,17 @@ class CriarUsuario(Resource):
                             'status': user.status, 'type': user.type})
 
         return jsonify({'error': 'Verifique se os campos estão inseridos corretamente!'})
-
     # --------------------------Login de Usuario-----------------------------------------------#
-
 
 @api.route('/users/login', methods=['POST'])
 class LoginUsuario(Resource):
     user_login_model = api.model('UserLoginModel', {
-        'name': fields.String(required=True, description='Nome do usuário'),
+        'email': fields.String(required=True, description='Email do usuário'),
         'password': fields.String(required=True, description='Senha do usuário')
     })
 
     @api.doc(
-        description="Efetua o login de um usuário. O usuário deve fornecer seu nome e senha.",
+        description="Efetua o login de um usuário. O usuário deve fornecer seu email e senha.",
         responses={
             200: 'Login feito com sucesso',
             401: 'Dados Inválidos'
@@ -65,35 +72,38 @@ class LoginUsuario(Resource):
     def post(self):
         login = request.get_json()
 
-        usuario = login.get('name')
+        email = login.get('email')
         senha = login.get('password')
 
-        user = User.query.filter_by(name=usuario).first()
+        user = User.query.filter_by(email=email).first()
+        if user and bcrypt.checkpw(senha.encode('utf-8'), user.password.encode('utf-8')):
+            session['email'] = email
 
         if user and bcrypt.checkpw(senha.encode('utf-8'), user.password.encode('utf-8')):
-            session['name'] = usuario
-            return jsonify({'id': user.id, 'user': user.name, 'message': 'Login feito com sucesso!'})
+            session['email'] = email
+            return jsonify({'id': user.id, 'email': user.email, 'message': 'Login feito com sucesso!'})
 
         return jsonify({'message': 'Dados Inválidos!'})
-
 
 # -------------------------Logout de usuario---------------------------------------------#
 @api.route('/users/logout', methods=['POST'])
 class LogoutUser(Resource):
-    @api.doc(responses={
-        200: 'Logout bem-sucedido',
-        401: 'Não autorizado, nenhum usuário logado'
-    })
+    @api.doc(
+        description="Efetua o logout do usuario(Comprador-Vendedor).",
+        responses={
+            200: 'Logout bem-sucedido',
+            401: 'Não autorizado, nenhum usuário logado'
+        })
     def post(self):
-        if 'name' in session:
-            session.pop('name', None)
+        if 'email' in session:
+            session.pop('email', None)
             return jsonify({'message': 'Usuário saiu da sessão!'})
 
         return jsonify({'message': 'Nenhum usuário logado!'})
 
 
 # -------------------------Editar Usuario--------------------------------------#
-@api.route('/users/<int:id>')
+@api.route('/users/<int:id>', methods=['PUT'])
 class UserOperations(Resource):
     @api.doc(
         description="Edita um usuário existente pelo ID",
@@ -112,14 +122,22 @@ class UserOperations(Resource):
         })
     )
     def put(self, id):
-
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
+
+        user = User.query.filter_by(email=session['email']).first()
 
         editar_user = request.get_json()
         user = User.query.get(id)
 
         if user:
+
+            if 'email' in editar_user and not re.match(r"[^@]+@[^@]+\.[^@]+", editar_user['email']):
+                return jsonify({'error': 'Formato de email inválido!'})
+
+            if 'password' in editar_user and len(editar_user['password']) < 4:
+                return jsonify({'error': 'A senha deve ter pelo menos 4 caracteres!'})
+
             user.name = editar_user.get('name', user.name)
             user.email = editar_user.get('email', user.email)
 
@@ -139,6 +157,7 @@ class UserOperations(Resource):
 
         return jsonify({'message': 'Usuário não encontrado!'})
 
+
     # --------------------------Deletar Usuário------------------------------------------#
     @api.doc(
         description="Exclui um usuário pelo ID",
@@ -150,8 +169,10 @@ class UserOperations(Resource):
         params={'id': 'ID do usuário a ser excluído'}
     )
     def delete(self, id):
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
+
+        user = User.query.filter_by(email=session['email']).first()
 
         user = User.query.get(id)
         if user:
@@ -250,15 +271,15 @@ class ItemOperations(Resource):
             'category_id': fields.Integer(required=True, description='ID da categoria do item'),
             'price': fields.Float(required=True, description='Preço do item'),
             'description': fields.String(required=True, description='Descrição do item'),
-            'status': fields.String(required=True, description='Status do item'),
+            'status': fields.String(required=True, description='Status do item', enum=['Disponível', 'Vendido']),
             'date': fields.DateTime(description='Data de criação do item')
         })
     )
     def post(self):
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        user = User.query.filter_by(name=session['name']).first()
+        user = User.query.filter_by(email=session['email']).first()
         if user.type != 'Vendedor':
             return jsonify({'message': 'Acesso restrito a vendedores!'})
 
@@ -285,7 +306,6 @@ class ItemOperations(Resource):
 
         return jsonify({'error': 'Verifique se os campos estão sendo inseridos corretamente!'})
 
-    # ------------------------Listar Itens----------------------------------------#
     @api.doc(
         description="Lista todos os itens",
         responses={
@@ -294,15 +314,19 @@ class ItemOperations(Resource):
         }
     )
     def get(self):
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
+
+        user = User.query.filter_by(email=session['email']).first()
 
         items = Item.query.all()
         items_json = [{'id': i.id, 'title': i.title, 'author': i.author, 'category_id': i.category_id, 'price': i.price,
                        'description': i.description, 'status': i.status, 'date': i.date, 'saller_id': i.saller_id} for i
                       in items]
         return jsonify(items_json)
-  # -------------------------Buscar por filtro----------------------------------------#
+
+    # ------------------------Listar Itens por filtro----------------------------------------#
+
 
 @api.route('/items/buscar', methods=['GET'])
 class BuscarItems(Resource):
@@ -323,7 +347,8 @@ class BuscarItems(Resource):
     )
     def get(self):
         parser = reqparse.RequestParser()
-        parser.add_argument('filtro', type=str, required=True, help='Filtro de busca (pode ser título, autor ou ID da categoria)')
+        parser.add_argument('filtro', type=str, required=True,
+                            help='Filtro de busca (pode ser título, autor ou ID da categoria)')
         args = parser.parse_args()
 
         filtro = args['filtro']
@@ -342,9 +367,9 @@ class BuscarItems(Resource):
                       for i in items]
 
         return jsonify(items_json)
-
-
-    # -------------------------Editar Item----------------------------------------#
+#------------------------------------Editar item, deletar item e listar item por id
+@api.route('/items/<int:id>', methods=['PUT', 'DELETE', 'GET'])
+class SpecificItemOperations(Resource):
     @api.doc(
         description="Edita um item existente pelo ID",
         responses={
@@ -360,14 +385,14 @@ class BuscarItems(Resource):
             'category_id': fields.Integer(description='ID da categoria do item'),
             'price': fields.Float(description='Preço do item'),
             'description': fields.String(description='Descrição do item'),
-            'status': fields.String(description='Status do item')
+            'status': fields.String(description='Status do item', enum=['Disponível', 'Vendido'])
         })
     )
     def put(self, id):
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        user = User.query.filter_by(name=session['name']).first()
+        user = User.query.filter_by(email=session['email']).first()
         if user.type != 'Vendedor':
             return jsonify({'message': 'Acesso restrito a vendedores!'})
 
@@ -391,7 +416,6 @@ class BuscarItems(Resource):
         else:
             return jsonify({'message': 'Você não tem permissão para editar este item!'})
 
-    # --------------------------Deletar Item-------------------------------------#
     @api.doc(
         description="Exclui um item pelo ID",
         responses={
@@ -403,10 +427,10 @@ class BuscarItems(Resource):
         params={'id': 'ID do item a ser excluído'}
     )
     def delete(self, id):
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        user = User.query.filter_by(name=session['name']).first()
+        user = User.query.filter_by(email=session['email']).first()
         if user.type != 'Vendedor':
             return jsonify({'message': 'Acesso restrito a vendedores!'})
 
@@ -420,6 +444,30 @@ class BuscarItems(Resource):
             return jsonify({'message': 'Item não encontrado!'})
         else:
             return jsonify({'message': 'Você não tem permissão para excluir este item!'})
+
+    @api.doc(
+        description="Obtém detalhes de um item específico pelo ID",
+        responses={
+            200: 'Detalhes do item retornados com sucesso',
+            401: 'Não autorizado - necessário estar logado',
+            404: 'Item não encontrado'
+        },
+        params={'id': 'ID do item'}
+    )
+    def get(self, id):
+        if 'email' not in session:
+            return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
+
+        user = User.query.filter_by(email=session['email']).first()
+
+        item = Item.query.get(id)
+        if item:
+            return jsonify(
+                {'id': item.id, 'title': item.title, 'author': item.author, 'category_id': item.category_id,
+                 'price': item.price, 'description': item.description, 'status': item.status,
+                 'date': item.date, 'saller_id': item.saller_id})
+
+        return jsonify({'message': 'Item não encontrado!'})
 
 
 # --------------------------Criar Categoria-----------------------------------------#
@@ -440,10 +488,10 @@ class CategoryOperations(Resource):
         })
     )
     def post(self):
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        user = User.query.filter_by(name=session['name']).first()
+        user = User.query.filter_by(email=session['email']).first()
         if user.type != 'Vendedor':
             return jsonify({'message': 'Acesso restrito a vendedores!'})
 
@@ -485,10 +533,10 @@ class SpecificCategoryOperations(Resource):
         params={'id': 'ID da categoria'}
     )
     def delete(self, id):
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        user = User.query.filter_by(name=session['name']).first()
+        user = User.query.filter_by(email=session['email']).first()
         if user.type != 'Vendedor':
             return jsonify({'message': 'Acesso restrito a vendedores!'})
 
@@ -514,10 +562,10 @@ class SpecificCategoryOperations(Resource):
         })
     )
     def put(self, id):
-        if 'name' not in session:
+        if 'email' not in session:
             return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        user = User.query.filter_by(name=session['name']).first()
+        user = User.query.filter_by(email=session['email']).first()
         if user.type != 'Vendedor':
             return jsonify({'message': 'Acesso restrito a vendedores!'})
 
@@ -550,10 +598,10 @@ class ComprarItem(Resource):
         params={'item_id': 'ID do item a ser comprado'},
     )
     def post(self, item_id):
-        if 'name' not in session:
-            return jsonify({'message': 'É necessário estar logado para comprar itens!'})
+        if 'email' not in session:
+            return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        comprador = User.query.filter_by(name=session['name']).first()
+        comprador = User.query.filter_by(email=session['email']).first()
         item = Item.query.get(item_id)
 
         if not item:
@@ -594,10 +642,10 @@ class ListarTransacoes(Resource):
         }
     )
     def get(self):
-        if 'name' not in session:
-            return jsonify({'message': 'É necessário estar logado para listar transações!'})
+        if 'email' not in session:
+            return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        comprador = User.query.filter_by(name=session['name']).first()
+        comprador = User.query.filter_by(email=session['email']).first()
         transacoes = Transacao.query.filter_by(comprador_id=comprador.id).all()
         transacoes_json = [{'id': t.id, 'item_id': t.item_id, 'valor': t.valor} for t in transacoes]
         return jsonify(transacoes_json)
@@ -616,10 +664,10 @@ class ListarVendas(Resource):
         }
     )
     def get(self):
-        if 'name' not in session:
-            return jsonify({'message': 'É necessário estar logado para listar transações!'})
+        if 'email' not in session:
+            return jsonify({'message': 'É necessário estar logado para utilizar esta função!'})
 
-        vendedor = User.query.filter_by(name=session['name']).first()
+        vendedor = User.query.filter_by(email=session['email']).first()
         transacoes = Transacao.query.filter_by(vendedor_id=vendedor.id).all()
         transacoes_json = [{'id': t.id, 'item_id': t.item_id, 'valor': t.valor} for t in transacoes]
         return jsonify(transacoes_json)
